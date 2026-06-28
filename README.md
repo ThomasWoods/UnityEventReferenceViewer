@@ -1,13 +1,13 @@
-# UnityEventReferenceViewer
-Simple tool for finding UnityEvent references to behaviour methods in scene
+# UnityEventReferenceViewer -forked
+Simple tool for finding UnityEvent references to behaviour methods in all prefabs in project
 
 Simple to use:
 * Import .unitypackage (you can import only editor part without Example) or code itself from repository
 * Open window by cicking Window/UnityEvent Reference Viewer
-* See all references in scene from unity events to any monobehaviours (clickable)
+* press Refresh and wait a second depending on project size
+* See all references in all prefabs from unity events to any monobehaviours (clickable)
 * Also shows generic UnityEvent<T> references
-* You can search for method or script name in searchfield (not case sensitive)
-  
-  Click on picture to see demo video:
+* You can search for specific gameobjects and method or script names in searchfields (not case sensitive)
 
-[![](http://img.youtube.com/vi/cGik_KPcx54/0.jpg)](http://www.youtube.com/watch?v=cGik_KPcx54 "SeeDemo")
+<img width="1358" height="973" alt="image" src="https://github.com/user-attachments/assets/e681d62a-ebdc-4635-83dc-9fe18d5ed2cc" />
+
