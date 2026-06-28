@@ -8,23 +8,17 @@ namespace UnityEventReferenceViewer
 {
     public class UnityEventReferenceViewerWindow : EditorWindow
     {
-        #region Fields
-
-        private int mainSpacing = 20;
-        private int tabulation = 30;
-        private float leftColoumnRelativeWidth = 0.6f;
-
-        private static List<EventReferenceInfo> dependencies;
-        private string searchString = "";
+        private static EventReferenceInfoDictionary allDependencies;
+        private static EventReferenceInfoDictionary filteredDependencies;
+        private string gameObjectSearch = "";
+        private string methodSearch = "";
 
         private Rect drawableRect;
 
         Vector2 scroll = Vector2.zero;
-        #endregion
+        int perPage = 100;
+        int page = 0;
 
-        #region Properties
-
-        #endregion
 
         [MenuItem("Window/UnityEvent Reference Viewer")]
         public static void OpenWindow()
@@ -34,25 +28,10 @@ namespace UnityEventReferenceViewer
             window.minSize = new Vector2(250, 100);
         }
 
-        [DidReloadScripts]
-        private static void RefreshDependencies()
-        {
-            FindDependencies();
-        }
-
-        private void OnFocus()
-        {
-            RefreshDependencies();
-        }
-
-        private void OnEnable()
-        {
-            FindDependencies();
-        }
-
         private void OnDisable()
         {
-            dependencies = null;
+            allDependencies = null;
+            filteredDependencies = null;
         }
 
         private void OnGUI()
@@ -62,97 +41,120 @@ namespace UnityEventReferenceViewer
 
         private void DrawWindow()
         {
-            var drawnVertically = 0;
             drawableRect = GetDrawableRect();
+            var quarterLength = GUILayout.Width(drawableRect.width / 4);
 
-            EditorGUI.LabelField(new Rect(drawableRect.position, new Vector2(100f, 16f)), "Search method");
-            var newString = EditorGUI.TextField(new Rect(drawableRect.position + Vector2.right * 100f, new Vector2(drawableRect.width - 100, 16f)), searchString);
-
-            if (newString != searchString)
+            using (new GUILayout.HorizontalScope())
             {
-                searchString = newString;
-
-                if (searchString != "")
+                gameObjectSearch = EditorGUILayout.TextField("GameObject Filter: ", gameObjectSearch, GUILayout.Width(drawableRect.width/3));
+                methodSearch = EditorGUILayout.TextField("Method Filter: ", methodSearch, GUILayout.Width(drawableRect.width/3));
+                var maxPage = filteredDependencies == null ? 0 : filteredDependencies.dict.Count / perPage;
+                EditorGUILayout.LabelField($"Page {page + 1} / {maxPage+1}");
+                if (GUILayout.Button("<<") && page > 0) page--;
+                if (GUILayout.Button(">>") && page < maxPage) page++;
+                GUILayout.FlexibleSpace();
+            }
+            using (new GUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("Refresh"))
                 {
-                    FindDependencies(searchString);
+                    FindDependencies(gameObjectSearch, methodSearch, true);
+                    page = 0;
                 }
-                else
+                if (GUILayout.Button("Filter"))
                 {
-                    FindDependencies();
+                    FindDependencies(gameObjectSearch, methodSearch, false);
+                    page = 0;
                 }
             }
-
-            if (dependencies != null)
+            GUILayout.Space(10);
+            using (new GUILayout.HorizontalScope())
             {
-                GUILayout.Space(80);
-                scroll = GUILayout.BeginScrollView(scroll, false, false);
-
-                int i = 0;
-                foreach (var d in dependencies)
-                {
-                    var verticalSpace = (d.Listeners.Count + 1) * 16 + mainSpacing;
-                    var position = new Vector2(drawableRect.position.x, 0f) + Vector2.up * drawnVertically;
-
-                    DrawDependencies(d, position);
-
-                    drawnVertically += verticalSpace;
-                    i++;
-                }
-
-                GUILayout.Space(drawnVertically + 20);
-
-                GUILayout.EndScrollView();
+                GUILayout.Label("__PREFAB__", quarterLength);
+                GUILayout.Label("__COMPONENT__", quarterLength);
+                GUILayout.Label("__LISTENER__", quarterLength);
+                GUILayout.Label("__METHOD__", quarterLength);
             }
-        }
 
-        private void DrawDependencies(EventReferenceInfo dependency, Vector2 position)
-        {
-            float width = drawableRect.width * leftColoumnRelativeWidth;
+            if (filteredDependencies == null) return;
 
-            EditorGUI.ObjectField(new Rect(position, new Vector2(width - tabulation, 16f)), dependency.Owner, typeof(MonoBehaviour), true);
-
-            for (int i = 0; i < dependency.Listeners.Count; i++)
+            int count = 0;
+            using (var scrollview = new GUILayout.ScrollViewScope(scroll, false, false))
             {
-                Vector2 positionRoot = position + Vector2.up * 16 + Vector2.up * 16 * i;
-                EditorGUI.ObjectField(new Rect(positionRoot + Vector2.right * tabulation, new Vector2(width - tabulation, 16f)), dependency.Listeners[i], typeof(MonoBehaviour), true);
-
-                Vector2 labelPosition = new Vector2(drawableRect.width * leftColoumnRelativeWidth + tabulation * 1.5f, positionRoot.y);
-                EditorGUI.LabelField(new Rect(labelPosition, new Vector2(drawableRect.width * (1 - leftColoumnRelativeWidth) - tabulation / 1.5f, 16f)), dependency.MethodNames[i]);
-            }
-        }
-
-        private static void FindDependencies(string methodName)
-        {
-            var depens = UnityEventReferenceFinder.FindAllUnityEventsReferences();
-            var onlyWithName = new List<EventReferenceInfo>();
-
-            foreach (var d in depens)
-            {
-                if (d.MethodNames.Where(m => m.ToLower().Contains(methodName.ToLower())).Count() > 0)
+                scroll = scrollview.scrollPosition;
+                foreach (var objPair in filteredDependencies.dict)
                 {
-                    var indexes = d.MethodNames.Where(n => n.ToLower().Contains(methodName.ToLower())).Select(n => d.MethodNames.IndexOf(n)).ToArray();
-
-                    var info = new EventReferenceInfo();
-                    info.Owner = d.Owner;
-
-                    foreach (var i in indexes)
+                    count++;
+                    if (count < page * perPage) continue;
+                    if (count > (page + 1) * perPage) continue;
+                    using (new GUILayout.HorizontalScope()) //Prefab Row
                     {
-                        info.Listeners.Add(d.Listeners[i]);
-                        info.MethodNames.Add(d.MethodNames[i]);
-                    }
+                        var parent = objPair.Key;
+                        var behaviorList = objPair.Value;
+                        EditorGUILayout.ObjectField(parent, typeof(GameObject), true, quarterLength);
+                        using (new GUILayout.VerticalScope()) //Behavior List
+                        {
+                            foreach (var behaviorPair in behaviorList)
+                            {
+                                var behavior = behaviorPair.Key;
+                                var infoList = behaviorPair.Value;
+                                using (new GUILayout.HorizontalScope()) //Behavior Row
+                                {
+                                    EditorGUILayout.ObjectField(behavior, typeof(MonoBehaviour), true, quarterLength);
 
-                    onlyWithName.Add(info);
+                                    using (new GUILayout.VerticalScope()) //Event Info List
+                                    {
+                                        foreach (var info in infoList)
+                                        {
+                                            using (new GUILayout.HorizontalScope()) //Event Info Row
+                                            {
+                                                EditorGUILayout.ObjectField(info.listener, typeof(MonoBehaviour), true, quarterLength);
+                                                EditorGUILayout.LabelField(info.methodName, quarterLength);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    GUILayout.Space(5);
                 }
             }
-
-            dependencies = onlyWithName.Count > 0 ? onlyWithName : depens;
         }
 
-        private static void FindDependencies()
+        private static void FindDependencies(string gameObjectFilter, string methodNameFilter, bool refresh)
         {
-            dependencies = UnityEventReferenceFinder.FindAllUnityEventsReferences();
+            if(refresh || allDependencies == null) allDependencies = UnityEventReferenceFinder.FindAllUnityEventsReferences();
+            filteredDependencies = null;
+            gameObjectFilter = gameObjectFilter.ToLower();
+            methodNameFilter = methodNameFilter.ToLower();
+            bool matchObj = !string.IsNullOrEmpty(gameObjectFilter);
+            bool matchFunc = !string.IsNullOrEmpty(methodNameFilter);
+            if (!matchObj && !matchFunc)
+            {
+                filteredDependencies = allDependencies;
+                return;
+            }
+            filteredDependencies = new EventReferenceInfoDictionary();
+            foreach (var a in allDependencies.dict)
+            {
+                var prefab = a.Key;
+                if (matchObj && !a.Key.name.ToLower().Contains(gameObjectFilter)) continue;
+                foreach(var b in a.Value) 
+                {
+                    var behavior = b.Key;
+                    var infos = b.Value;
+                    foreach (var info in infos)
+                    {
+                        if (matchFunc && !info.methodName.ToLower().Contains(methodNameFilter)) continue;
+                        if (!filteredDependencies.dict.ContainsKey(prefab)) filteredDependencies.dict.Add(prefab, new Dictionary<MonoBehaviour, List<EventReferenceInfo>>());
+                        if (!filteredDependencies.dict[prefab].ContainsKey(behavior)) filteredDependencies.dict[prefab].Add(behavior, new List<EventReferenceInfo>());
+                        filteredDependencies.dict[prefab][behavior].Add(info);
+                    }
+                }
+            }
         }
-
+        
         private Rect GetDrawableRect()
         {
             return new Rect(Vector2.one * 30f, position.size - Vector2.one * 60f);

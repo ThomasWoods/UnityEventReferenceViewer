@@ -3,78 +3,68 @@ using UnityEngine;
 using System.Reflection;
 using UnityEngine.Events;
 using System.Linq;
+using UnityEditor;
 
 namespace UnityEventReferenceViewer
 {
+    public class EventReferenceInfoDictionary
+    {
+        public Dictionary<GameObject, Dictionary<MonoBehaviour, List<EventReferenceInfo>>> dict;
+        public EventReferenceInfoDictionary() 
+        {
+            dict = new Dictionary<GameObject, Dictionary<MonoBehaviour, List<EventReferenceInfo>>>();
+        }
+    }
     public class EventReferenceInfo
     {
-        public MonoBehaviour Owner { get; set; }
-        public List<MonoBehaviour> Listeners { get; set; } = new List<MonoBehaviour>();
-        public List<string> MethodNames { get; set; } = new List<string>();
+        public MonoBehaviour listener { get; set; }
+        public string methodName { get; set; }
     }
 
     public class UnityEventReferenceFinder : MonoBehaviour
     {
-        #region Fields
-
-        #endregion
-
-        #region Properties
-
-        #endregion
-
-        [ContextMenu("FindReferences")]
-        public void FindReferences()
+        public static EventReferenceInfoDictionary FindAllUnityEventsReferences()
         {
-            FindAllUnityEventsReferences();
-        }
-
-        public static List<EventReferenceInfo> FindAllUnityEventsReferences()
-        {
-            var behaviours = Resources.FindObjectsOfTypeAll<MonoBehaviour>();
-            var events = new Dictionary<MonoBehaviour, List<UnityEventBase>>();
-
-            foreach (var b in behaviours)
+            var assets = AssetDatabase.FindAssets("t:prefab", new string[] { });
+            var events = new EventReferenceInfoDictionary();
+            foreach (var a in assets)
             {
-                var info = b.GetType().GetTypeInfo();
-                var evnts = info.DeclaredFields.Where(f => f.FieldType.IsSubclassOf(typeof(UnityEventBase))).ToList();
-                foreach (var e in evnts)
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GUIDToAssetPath(a));
+                foreach (var behavior in prefab.GetComponentsInChildren<MonoBehaviour>())
                 {
-                    var unityEvent = e.GetValue(b) as UnityEventBase;
-
-                    if (!events.ContainsKey(b))
+                    var bTypeInfo = behavior.GetType().GetTypeInfo();
+                    var bEvents = bTypeInfo.DeclaredFields.Where(f => f.FieldType.IsSubclassOf(typeof(UnityEventBase))).ToList();
+                    foreach (var e in bEvents)
                     {
-                        events[b] = new List<UnityEventBase>();
-                    }
+                        var unityEvent = e.GetValue(behavior) as UnityEventBase;
 
-                    events[b].Add(unityEvent);
+                        int count = unityEvent.GetPersistentEventCount();
+                        var infos = new List<EventReferenceInfo>();
+                        for (int i = 0; i < count; i++)
+                        {
+                            var obj = unityEvent.GetPersistentTarget(i);
+                            var method = unityEvent.GetPersistentMethodName(i);
+
+                            var einfo = new EventReferenceInfo();
+                            einfo.listener = obj as MonoBehaviour;
+                            einfo.methodName = obj.GetType().Name.ToString() + "." + method;
+                            
+                            infos.Add(einfo);
+                        }
+
+                        if (infos.Count > 0)
+                        {
+                            if (!events.dict.ContainsKey(prefab))
+                                events.dict.Add(prefab, new Dictionary<MonoBehaviour, List<EventReferenceInfo>>());
+                            if(!events.dict[prefab].ContainsKey(behavior))
+                                events.dict[prefab][behavior] = new List<EventReferenceInfo>();
+                            events.dict[prefab][behavior].AddRange(infos);
+                        }
+                    }
                 }
             }
 
-            var infos = new List<EventReferenceInfo>();
-
-            foreach (var e in events)
-            {
-                foreach (var unityEvent in e.Value)
-                {
-                    int count = unityEvent.GetPersistentEventCount();
-                    var info = new EventReferenceInfo();
-                    info.Owner = e.Key;
-
-                    for (int i = 0; i < count; i++)
-                    {
-                        var obj = unityEvent.GetPersistentTarget(i);
-                        var method = unityEvent.GetPersistentMethodName(i);
-
-                        info.Listeners.Add(obj as MonoBehaviour);
-                        info.MethodNames.Add(obj.GetType().Name.ToString() + "." + method);
-                    }
-
-                    infos.Add(info);
-                }
-            }
-
-            return infos;
+            return events;
         }
     }
 }
